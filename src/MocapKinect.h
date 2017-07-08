@@ -9,6 +9,10 @@
 #include "MoCapSystem.h"
 #include "NuiApi.h"
 
+#include "VectorMath.h"
+
+#include <vector>
+
 class MoCapKinect : public MoCapSystem
 {
 public:
@@ -29,14 +33,26 @@ public:
 
 private:
 		HRESULT findKinectSensor();
+		bool initialiseKinect();
+		void SkeletonFrameReady(NUI_SKELETON_FRAME *pSkeletonframe, sMarkerSetData* msData);
+		void GetSkeleton(const NUI_SKELETON_DATA &skeleton, sMarkerSetData* msData);
 
 private:
 		bool         initialised;
 		bool         isPlaying;
-		std::string  strCortexAddress;
+		std::string  strKinectAddress;
 		std::string  strLocalAddress;
 		INuiSensor *pNuiSensor;
 		HANDLE kinectHandel;
+
+		int                     iFrame;
+		float                   fTime;
+		std::vector<Vector3D>   arrPos;
+		std::vector<Quaternion> arrRot;
+
+		bool                    trackingUnreliable;
+		std::vector<int>        arrTrackingLostCounter;
+
 };
 
 #endif

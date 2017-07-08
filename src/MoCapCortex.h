@@ -11,30 +11,13 @@
 #pragma comment(lib, "Cortex_SDK.lib")
 
 #include "MoCapSystem.h"
-#include "SystemConfiguration.h"
 #include "Cortex.h"
-
-
-class MoCapCortexConfiguration : public SystemConfiguration
-{
-public:
-	MoCapCortexConfiguration();
-
-	virtual bool handleParameter(int idx, const std::string& value);
-
-public:
-
-	bool        useCortex;
-	std::string remoteCortexAddress;
-	std::string localCortexAddress;
-};
-
 
 
 class MoCapCortex : public MoCapSystem
 {
 public:
-	MoCapCortex(MoCapCortexConfiguration cofiguration);
+	MoCapCortex(const std::string &strCortexAddress, const std::string &strLocalAddress);
 	virtual ~MoCapCortex();
 
 public:
@@ -82,11 +65,11 @@ private:
 
 private:
 
-	MoCapCortexConfiguration configuration;
-
 	bool         initialised;
 	bool         isPlaying;
-	
+	std::string  strCortexAddress;
+	std::string  strLocalAddress;
+
 	sHostInfo*   pCortexInfo;
 
 	float        unitScaleFactor;

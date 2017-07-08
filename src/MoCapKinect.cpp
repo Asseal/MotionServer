@@ -15,31 +15,34 @@
 struct SKELETON_POSITIONS {
 	char* PositionName;
 	NUI_SKELETON_POSITION_INDEX index;
+	float x;
+	float y;
+	float z;
 };
 
 const SKELETON_POSITIONS SKELETON_POSTIONS_PARAM[]{
-	{"HEAD", NUI_SKELETON_POSITION_HEAD}, {"SHOULDER_CENTER",NUI_SKELETON_POSITION_SHOULDER_CENTER}, 
-	{"SHOULDER_RIGHT", NUI_SKELETON_POSITION_SHOULDER_RIGHT}, {"ELBOW_RIGHT", NUI_SKELETON_POSITION_ELBOW_RIGHT},
-	{"WRIST_RIGHT", NUI_SKELETON_POSITION_WRIST_RIGHT}, {"HAND_RIGHT", NUI_SKELETON_POSITION_HAND_RIGHT},
-	{"SHOULDER_LEFT", NUI_SKELETON_POSITION_SHOULDER_LEFT}, {"ELBOW_LEFT", NUI_SKELETON_POSITION_ELBOW_LEFT},
-	{"WRIST_LEFT",NUI_SKELETON_POSITION_WRIST_LEFT}, {"HAND_LEFT", NUI_SKELETON_POSITION_HAND_LEFT},
-	{"SPINE", NUI_SKELETON_POSITION_SPINE}, {"HIP_CENTER", NUI_SKELETON_POSITION_HIP_CENTER}, 
-	{"HIP_RIGHT", NUI_SKELETON_POSITION_HIP_RIGHT}, {"HIP_LEFT", NUI_SKELETON_POSITION_HIP_LEFT}, 
-	{"KNEE_RIGHT", NUI_SKELETON_POSITION_KNEE_RIGHT}, {"KNEE_LEFT", NUI_SKELETON_POSITION_KNEE_LEFT}, 
-	{"ANKLE_RIGHT", NUI_SKELETON_POSITION_ANKLE_RIGHT}, {"ANKLE_LEFT", NUI_SKELETON_POSITION_ANKLE_LEFT}, 
-	{"FOOT_RIGHT", NUI_SKELETON_POSITION_FOOT_RIGHT}, {"FOOT_LEFT",NUI_SKELETON_POSITION_FOOT_LEFT},
+	{ "HEAD", NUI_SKELETON_POSITION_HEAD },{ "SHOULDER_CENTER",NUI_SKELETON_POSITION_SHOULDER_CENTER },
+	{ "SHOULDER_RIGHT", NUI_SKELETON_POSITION_SHOULDER_RIGHT },{ "ELBOW_RIGHT", NUI_SKELETON_POSITION_ELBOW_RIGHT },
+	{ "WRIST_RIGHT", NUI_SKELETON_POSITION_WRIST_RIGHT },{ "HAND_RIGHT", NUI_SKELETON_POSITION_HAND_RIGHT },
+	{ "SHOULDER_LEFT", NUI_SKELETON_POSITION_SHOULDER_LEFT },{ "ELBOW_LEFT", NUI_SKELETON_POSITION_ELBOW_LEFT },
+	{ "WRIST_LEFT",NUI_SKELETON_POSITION_WRIST_LEFT },{ "HAND_LEFT", NUI_SKELETON_POSITION_HAND_LEFT },
+	{ "SPINE", NUI_SKELETON_POSITION_SPINE },{ "HIP_CENTER", NUI_SKELETON_POSITION_HIP_CENTER },
+	{ "HIP_RIGHT", NUI_SKELETON_POSITION_HIP_RIGHT },{ "HIP_LEFT", NUI_SKELETON_POSITION_HIP_LEFT },
+	{ "KNEE_RIGHT", NUI_SKELETON_POSITION_KNEE_RIGHT },{ "KNEE_LEFT", NUI_SKELETON_POSITION_KNEE_LEFT },
+	{ "ANKLE_RIGHT", NUI_SKELETON_POSITION_ANKLE_RIGHT },{ "ANKLE_LEFT", NUI_SKELETON_POSITION_ANKLE_LEFT },
+	{ "FOOT_RIGHT", NUI_SKELETON_POSITION_FOOT_RIGHT },{ "FOOT_LEFT",NUI_SKELETON_POSITION_FOOT_LEFT },
 };
 
-const int SKELETON_POSITION_INDEX_COUNT = sizeof(SKELETON_POSTIONS_PARAM)/2;
+const int SKELETON_POSITION_INDEX_COUNT = sizeof(SKELETON_POSTIONS_PARAM) / 2;
 
-MoCapKinect::MoCapKinect():
+MoCapKinect::MoCapKinect() :
 	initialised(false),
 	isPlaying(true)
 {
+	this->strKinectAddress = strKinectAddress;
 }
 
 bool MoCapKinect::initialise() {
-
 	initialised = true;
 
 	LOG_INFO("Kinect SDK version v 1.8");
@@ -59,7 +62,7 @@ bool MoCapKinect::initialise() {
 	result = pNuiSensor->NuiInitialize(NUI_INITIALIZE_FLAG_USES_SKELETON);
 
 	if (FAILED(result)) {
-		LOG_INFO ("Cannot open kinect.");
+		LOG_INFO("Cannot open kinect.");
 		deinitialise();
 		return initialised;
 	}
@@ -85,33 +88,29 @@ bool MoCapKinect::isActive()
 
 float MoCapKinect::getUpdateRate()
 {
-	return 0;
+	return 60;
 }
 
 bool  MoCapKinect::getFrameData(MoCapData& refData) {
-	LOG_INFO("FRAME DATA")
+	// update marker data
+	sMarkerSetData& msData = refData.frame.MocapData[0];
 
-		// update marker data
-		sMarkerSetData& msData = refData.frame.MocapData[b];
-		for (int m = 0; m < msData.nMarkers; m++)
+	if (WAIT_OBJECT_0 == WaitForSingleObject(kinectHandel, 0)) {
+		NUI_SKELETON_FRAME skeletonFrame = { 0 };
+
+		if (SUCCEEDED(pNuiSensor->NuiSkeletonGetNextFrame(0, &skeletonFrame)))
 		{
-			msData.Markers[m][0] = arrPos[b].x + (rand() * 0.1f / RAND_MAX - 0.05f);
-			msData.Markers[m][1] = arrPos[b].y + (rand() * 0.1f / RAND_MAX - 0.05f);
-			msData.Markers[m][2] = arrPos[b].z + (rand() * 0.1f / RAND_MAX - 0.05f);
+			SkeletonFrameReady(&skeletonFrame, &msData);
 		}
+	}
 
-		// update rigid body data
-		sRigidBodyData& rbData = refData.frame.RigidBodies[b];
-		rbData.ID = b;
-
-		rbData.nMarkers = 0;
-		rbData.MeanError = 0;
+	Sleep(1000/120);
 
 	return true;
 }
 
 bool  MoCapKinect::processCommand(const std::string& strCommand) {
-	return false;
+	return true;
 }
 
 bool MoCapKinect::isRunning()
@@ -121,63 +120,92 @@ bool MoCapKinect::isRunning()
 
 void MoCapKinect::setRunning(bool running)
 {
+	isPlaying = running;
 }
 
 
 bool MoCapKinect::update()
 {
-
-	//Not implemented
-	if (isPlaying)
-	{
-	}
-		
-	return false;
+	//update is done by kinect itself, no menu update required	
+	signalNewFrame();
+	return true;
 }
 
+void MoCapKinect::SkeletonFrameReady(NUI_SKELETON_FRAME *pSkeletonFrame, sMarkerSetData* msData)
+{
+	for (int i = 0; i < NUI_SKELETON_COUNT; i++)
+	{
+		const NUI_SKELETON_DATA &skeleton = pSkeletonFrame->SkeletonData[i];
+
+		switch (skeleton.eTrackingState)
+		{
+		case NUI_SKELETON_TRACKED:
+			GetSkeleton(skeleton, msData);
+			break;
+		case NUI_SKELETON_POSITION_ONLY:
+			GetSkeleton(skeleton, msData);
+			break;
+		}
+	}
+}
+
+void MoCapKinect::GetSkeleton(const NUI_SKELETON_DATA &skeleton, sMarkerSetData *msData)
+{
+	//sample to show the position
+	for (int m = 0; m < msData->nMarkers; m++)
+	{
+		const Vector4 &point = skeleton.SkeletonPositions[SKELETON_POSTIONS_PARAM[m].index];
+
+		std::cout << "x" << point.x << "y" << point.y << "z" << point.z << "\n" << std::endl;
+		msData->Markers[m][0] = point.x;
+		msData->Markers[m][1] = point.y;
+		msData->Markers[m][2] = point.z;
+	}
+}
 
 bool MoCapKinect::getSceneDescription(MoCapData& refData)
 {
-	LOG_INFO("Requesting scene description")
-
 	int descrIdx = 0;
-	
-		// create markerset description and frame
-		sMarkerSetDescription* pMarkerDesc = new sMarkerSetDescription();
-		sMarkerSetData&        msData = refData.frame.MocapData[0];
 
-		// name of marker set
-		strcpy_s(pMarkerDesc->szName, sizeof(pMarkerDesc->szName), "user 1");
-		strcpy_s(msData.szName, sizeof(msData.szName), pMarkerDesc->szName);
+	// create markerset description and frame
+	sMarkerSetDescription* pMarkerDesc = new sMarkerSetDescription();
+	sMarkerSetData&        msData = refData.frame.MocapData[0];
 
-		// number of markers
-		pMarkerDesc->nMarkers = SKELETON_POSITION_INDEX_COUNT;
-		msData.nMarkers = SKELETON_POSITION_INDEX_COUNT;
+	// name of marker set
+	strcpy_s(pMarkerDesc->szName, sizeof(pMarkerDesc->szName), "user 1");
+	strcpy_s(msData.szName, sizeof(msData.szName), pMarkerDesc->szName);
 
-		pMarkerDesc->szMarkerNames = new char*[SKELETON_POSITION_INDEX_COUNT];
-		msData.Markers = new MarkerData[SKELETON_POSITION_INDEX_COUNT];
-		for (int m = 0; m < SKELETON_POSITION_INDEX_COUNT; m++)
-		{
-			pMarkerDesc->szMarkerNames[m] = _strdup(SKELETON_POSTIONS_PARAM[m].PositionName);
-		}
+	// number of markers
+	pMarkerDesc->nMarkers = 20;
+	msData.nMarkers = 20;
 
-		// add to description list
-		refData.description.arrDataDescriptions[descrIdx].type = Descriptor_MarkerSet;
-		refData.description.arrDataDescriptions[descrIdx].Data.MarkerSetDescription = pMarkerDesc;
-		descrIdx++;
+	pMarkerDesc->szMarkerNames = new char*[20];
+	msData.Markers = new MarkerData[20];
 
-		sRigidBodyDescription* pBodyDesc = new sRigidBodyDescription();
-		// fill in description structure
-		pBodyDesc->ID = 0; // needs to be equal to array index
-		pBodyDesc->parentID = -1;
-		pBodyDesc->offsetx = 0;
-		pBodyDesc->offsety = 0;
-		pBodyDesc->offsetz = 0;
-		strcpy_s(pBodyDesc->szName, sizeof(pBodyDesc->szName), pMarkerDesc->szName);
 
-		refData.description.arrDataDescriptions[descrIdx].type = Descriptor_RigidBody;
-		refData.description.arrDataDescriptions[descrIdx].Data.RigidBodyDescription = pBodyDesc;
-		descrIdx++;
+	for (int m = 0; m < 20; m++)
+	{
+		pMarkerDesc->szMarkerNames[m] = SKELETON_POSTIONS_PARAM[m].PositionName;
+	}
+
+
+	// add to description list
+	refData.description.arrDataDescriptions[descrIdx].type = Descriptor_MarkerSet;
+	refData.description.arrDataDescriptions[descrIdx].Data.MarkerSetDescription = pMarkerDesc;
+	descrIdx++;
+
+	sRigidBodyDescription* pBodyDesc = new sRigidBodyDescription();
+	// fill in description structure
+	pBodyDesc->ID = 0; // needs to be equal to array index
+	pBodyDesc->parentID = -1;
+	pBodyDesc->offsetx = 0;
+	pBodyDesc->offsety = 0;
+	pBodyDesc->offsetz = 0;
+	strcpy_s(pBodyDesc->szName, sizeof(pBodyDesc->szName), pMarkerDesc->szName);
+
+	refData.description.arrDataDescriptions[descrIdx].type = Descriptor_RigidBody;
+	refData.description.arrDataDescriptions[descrIdx].Data.RigidBodyDescription = pBodyDesc;
+	descrIdx++;
 
 	refData.description.nDataDescriptions = descrIdx;
 
@@ -201,7 +229,7 @@ bool MoCapKinect::getSceneDescription(MoCapData& refData)
 }
 
 bool MoCapKinect::deinitialise() {
-	if (initialised){
+	if (initialised) {
 		NuiShutdown();
 		initialised = false;
 	}

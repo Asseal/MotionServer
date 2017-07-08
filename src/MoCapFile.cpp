@@ -593,33 +593,8 @@ std::string MoCapFileWriter::getTimestampFilename()
 #define MAX_PLAYBACK_SPEED 10.0f
 
 
-MoCapFileReaderConfiguration::MoCapFileReaderConfiguration() :
-	SystemConfiguration("MoCap File Reader"),
-	filename("")
-{
-	addParameter("-readFile", "<MOT file name>", "Load a MoCap recording file");
-}
-
-
-bool MoCapFileReaderConfiguration::handleParameter(int idx, const std::string& value)
-{
-	bool success = true;
-	switch (idx)
-	{
-	case 0:
-		filename = value;
-		break;
-
-	default:
-		success = false;
-		break;
-	}
-	return success;
-}
-
-
-MoCapFileReader::MoCapFileReader(MoCapFileReaderConfiguration configuration) :
-	configuration(configuration),
+MoCapFileReader::MoCapFileReader(const std::string& strFilename) :
+	strFilename(strFilename),
 	updateRate(0),
 	pBuf(NULL), pRead(NULL),
 	bufSize(65536), // should be a good start for a buffer size...
@@ -642,7 +617,7 @@ bool MoCapFileReader::initialise()
 {
 	bool success = false;
 	
-	input.open(configuration.filename, std::ios::in);
+	input.open(strFilename, std::ios::in);
 	if (input.is_open())
 	{
 		posDescriptions = -1;
@@ -937,7 +912,7 @@ bool MoCapFileReader::deinitialise()
 	if (input.is_open())
 	{
 		input.close();
-		LOG_INFO("MoCap data file '" << configuration.filename << "' closed");
+		LOG_INFO("MoCap data file '" << strFilename << "' closed");
 	}
 
 	// release read buffer
@@ -984,7 +959,7 @@ bool MoCapFileReader::readHeader()
 		if (readTag(TAG_SECTION_DESCRIPTIONS))
 		{
 			int nDescriptions = readInt();
-			LOG_INFO("Opened MoCap data file '" << configuration.filename << "' "
+			LOG_INFO("Opened MoCap data file '" << strFilename << "' "
 				<< "(v" << fileVersion 
 				<< ", Sample Rate: " << updateRate << "Hz"
 				<< ", Descriptions: " << nDescriptions << ")");
