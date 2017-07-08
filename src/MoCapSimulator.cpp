@@ -168,6 +168,7 @@ bool MoCapSimulator::getSceneDescription(MoCapData& refData)
 	LOG_INFO("Requesting scene description")
 
 	int descrIdx = 0;
+	LOG_INFO("RIGID_BODY_COUNT" << RIGID_BODY_COUNT)
 	for (int b = 0; b < RIGID_BODY_COUNT; b++)
 	{
 		// create markerset description and frame
@@ -210,6 +211,8 @@ bool MoCapSimulator::getSceneDescription(MoCapData& refData)
 		refData.description.arrDataDescriptions[descrIdx].Data.RigidBodyDescription = pBodyDesc;
 		descrIdx++;
 	}
+
+	LOG_INFO("SKELETON_COUNT " << SKELETON_COUNT)
 
 	for (int s = 0; s < SKELETON_COUNT; s++)
 	{

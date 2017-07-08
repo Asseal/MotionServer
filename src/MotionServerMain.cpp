@@ -5,8 +5,9 @@
  *
  */
 
+
 // Server version information
-const int arrServerVersion[4] = { 1, 10, 0, 0 };
+const int arrServerVersion[4] = { 1, 9, 0, 0 };
 
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -31,7 +32,6 @@ const int arrServerVersion[4] = { 1, 10, 0, 0 };
 
 #include <algorithm>
 #include <chrono>
-#include <iomanip>
 #include <iostream>
 #include <iterator>
 #include <string>
@@ -45,7 +45,6 @@ const int arrServerVersion[4] = { 1, 10, 0, 0 };
 #include "NatNetTypes.h"
 #include "NatNetServer.h"
 #include "MoCapData.h"
-#include "SystemConfiguration.h"
 
 #include "Logging.h"
 #undef   LOG_CLASS
@@ -59,132 +58,62 @@ const int arrServerVersion[4] = { 1, 10, 0, 0 };
 #include "MoCapKinect.h"
 #endif
 
-#ifdef USE_PIECEMETA
-#include "MoCapPieceMeta.h"
-#endif
-
 #include "MoCapSimulator.h"
 #include "MoCapFile.h"
 #include "InteractionSystem.h"
 
 
 ///////////////////////////////////////////////////////////////////////////////
-// Configuration classes and variables
+// Configuration variables
 //
 
-class MotionServerConfiguration : public SystemConfiguration
+struct sConfiguration 
 {
-public:
-	MotionServerConfiguration() :
-		SystemConfiguration("Motion Server"),
-		printHelp(false),
-		serverName("MotionServer"),
-		useMulticast(false),
-		serverAddress("127.0.0.1"),
-		serverMulticastAddress(""),
-		// Portnumbers: Default is 1510/1511, but that seems to collide with Cortex.
-		// 1503 is taken by Windows messenger, 1512 is taken by WINS -> so let's use 1508, 1509
-		commandPort(1508),
-		dataPort(1509),
-		interactionControllerPort(0),
-		writeData(false)
-	{
-		addOption("-h", "Print Help");
-		addParameter("-serverName", "<name>", "Name of MoCap Server (default: '" + serverName + "')");
-		addParameter("-serverAddr", "<address>", "IP Address of MotionServer (default: " + serverAddress + ")");
-		addParameter("-multicastAddr", "<address>", "IP Address of multicast MotionServer (default: Unicast)");
-		addParameter("-interactionControllerPort", "<number>", "COM port of XBee interaction controller (-1: scan)");
-		addOption("-writeFile", "Write MoCap data into timestamped files");
-	}
-
-	virtual bool handleParameter(int idx, const std::string& value)
-	{
-		bool success = true;
-		switch (idx)
-		{
-			case 0: // help
-				printHelp = true;
-				break;
-
-			case 1: // Server name
-				serverName = value;
-				break;
-
-			case 2: // Server unicast address
-				serverAddress = value;
-				break;
-				
-			case 3: // Server multicast address
-				serverMulticastAddress = value;
-				useMulticast = true;
-				break;
-
-			case 4: // COM port number for XBee interaction controller
-				interactionControllerPort = atoi(value.c_str());
-				break;
-
-			default:
-				success = false;
-				break;
-		}
-		return success;
-	}
-
-public:
-
-	bool        printHelp;
-
-	std::string serverName;
+	std::string strServerName;
 
 	bool        useMulticast;
-	std::string serverAddress;
-	std::string serverMulticastAddress;
-	int         commandPort;
-	int         dataPort;
+	std::string strNatNetServerAddress;
+	std::string strNatNetServerMulticastAddress;
+	int         iNatNetCommandPort;
+	int         iNatNetDataPort;
 
 	bool        writeData;
+	std::string dataFilename;
 
-	int         interactionControllerPort;
-};
+	bool        useCortex;
+	std::string strRemoteCortexAddress;
+	std::string strLocalCortexAddress;
 
+	int         iInteractionControllerPort;
 
-struct sConfiguration
-{
-	MotionServerConfiguration*    pMain;
-	MoCapFileReaderConfiguration* pFileReader;
-
-#ifdef USE_CORTEX
-	MoCapCortexConfiguration*     pCortex;
-#endif
-	
 	bool        useKinect;
-
-#ifdef USE_PIECEMETA
-	MoCapPieceMetaConfiguration*  pPieceMeta;
-#endif
-
-	std::vector<SystemConfiguration*> systemConfigurations;
-
 
 	sConfiguration()
 	{
-		pMain = new MotionServerConfiguration();
-		systemConfigurations.push_back(pMain);
+		// default configuration
 
-		pFileReader = new MoCapFileReaderConfiguration();
-		systemConfigurations.push_back(pFileReader);
+		strServerName                   = "MotionServer";
 
-#ifdef USE_CORTEX
-		pCortex = new MoCapCortexConfiguration();
-		systemConfigurations.push_back(pCortex);
-#endif
+		useMulticast                    = false;
+		strNatNetServerAddress          = "127.0.0.1";
+		strNatNetServerMulticastAddress = "";
+		
+		// Portnumbers: Default is 1510/1511, but that seems to collide with Cortex.
+		// 1503 is taken by Windows messenger, 1512 is taken by WINS
+		// -> so let's use 1508, 1509
+		iNatNetCommandPort = 1508;
+		iNatNetDataPort    = 1509;
+
+		iInteractionControllerPort = 0;
+
+		writeData    = false;
+		dataFilename = "";
+
+		useCortex              = false;
+		strRemoteCortexAddress = "127.0.0.1";
+		strLocalCortexAddress  = strRemoteCortexAddress;
 
 		useKinect = false;
-
-#ifdef USE_PIECEMETA
-		pPieceMeta = new MoCapPieceMetaConfiguration();
-		systemConfigurations.push_back(pPieceMeta);
-#endif
 	}
 
 } config;
@@ -247,24 +176,22 @@ void mocapTimerThread();
 
 void printUsage()
 {
-	const int w = 40;
-	
-	// go through all possible configurable systems
-	for (std::vector<SystemConfiguration*>::const_iterator sys = config.systemConfigurations.cbegin();
-		sys != config.systemConfigurations.cend();
-		sys++)
-	{
-		std::cout << (*sys)->getSystemName() << " options:" << std::endl;
-		// list their comand line options
-		for (std::vector<SystemConfiguration::sParameter>::const_iterator param = (*sys)->getParameters().cbegin();
-			param != (*sys)->getParameters().cend();
-			param++
-			)
-		{
-			std::string p = " " + (*param).name + " " + (*param).parameter;
-			std::cout << std::left << std::setw(w) << p << (*param).description << std::endl;
-		}
-	}
+	std::cout << "Command line arguments:" << std::endl
+		<< "-h                                    Print Help" << std::endl
+		<< "-serverName <name>                    Name of MoCap Server (default: 'MotionServer')" << std::endl
+		<< "-serverAddr <address>                 IP Address of MotionServer (default: 127.0.0.1)" << std::endl
+		<< "-multicastAddr <address>              IP Address of multicast MotionServer (default: Unicast)" << std::endl
+#ifdef USE_KINECT
+		<< "-kinect                               Kinect sensor detection" << std::endl
+#endif
+#ifdef USE_CORTEX
+		<< "-cortexRemoteAddr <address>           IP Address of remote interface to connect to Cortex" << std::endl
+		<< "-cortexLocalAddr <address>            IP Address of local interface to connect to Cortex" << std::endl
+#endif
+		<< "-interactionControllerPort <number>   COM port of XBee interaction controller (-1: scan)" << std::endl
+		<< "-readFile <filename>                  Read and loop MoCap Data from a file" << std::endl
+		<< "-writeFile                            Write MoCap Data into timestamped files" << std::endl
+		;
 }
 
 
@@ -276,7 +203,9 @@ void parseCommandLine(int nArguments, _TCHAR* arrArguments[])
 	if (nArguments == 1)
 	{
 		// no command line option passed: print usage
-		config.pMain->printHelp = true;
+		serverStarting = false;
+		serverRestarting = false;
+		printUsage();
 	}
 
 	int argIdx = 1;
@@ -290,12 +219,16 @@ void parseCommandLine(int nArguments, _TCHAR* arrArguments[])
 		// check arguments with no additional parameter
 		if (argIdx < nArguments)
 		{
-			// run option through systems
-			for (std::vector<SystemConfiguration*>::const_iterator sys = config.systemConfigurations.cbegin();
-				sys != config.systemConfigurations.cend();
-				sys++)
+			if (strArg == "-h")
 			{
-				(*sys)->processOption(strArg);
+				// help
+				serverStarting   = false;
+				serverRestarting = false;
+				printUsage();
+			}
+			else if (strArg == "-writefile")
+			{
+				config.writeData = true;
 			}
 		}
 		// check arguments with one additional parameter
@@ -305,13 +238,53 @@ void parseCommandLine(int nArguments, _TCHAR* arrArguments[])
 			std::wstring strParam1W(arrArguments[argIdx + 1]);
 			std::string  strParam1(strParam1W.begin(), strParam1W.end());
 
-			// run option through systems
-			for (std::vector<SystemConfiguration*>::const_iterator sys = config.systemConfigurations.cbegin();
-				sys != config.systemConfigurations.cend();
-				sys++)
+			if (strArg == "-servername")
 			{
-				(*sys)->processParameter(strArg, strParam1);
+				// Server name
+				config.strServerName = strParam1;
 			}
+			else if (strArg == "-serveraddr")
+			{
+				// Server unicast address
+				config.strNatNetServerAddress = strParam1;
+			}
+			else if (strArg == "-interactioncontrollerport")
+			{
+				// COM port number for XBee interaction controller
+				config.iInteractionControllerPort = atoi(strParam1.c_str());
+			}
+			else if (strArg == "-multicastaddr")
+			{
+				// Server multicast address
+				config.strNatNetServerMulticastAddress = strParam1;
+				config.useMulticast = true;
+			}
+			else if (strArg == "-readfile")
+			{
+				// file to read
+				config.dataFilename = strParam1;
+			}
+#ifdef USE_CORTEX
+			else if (strArg == "-cortexremoteaddr")
+			{
+				// Cortex server address
+				config.strRemoteCortexAddress = strParam1;
+				config.useCortex = true;
+			}
+			else if (strArg == "-cortexlocaladdr")
+			{
+				// Cortex local address
+				config.strLocalCortexAddress = strParam1;
+				config.useCortex = true;
+			}
+#endif
+#ifdef USE_KINECT
+			else if (strArg == "-kinect")
+			{
+				config.useKinect = true;
+				config.strNatNetServerAddress = strParam1;
+			}
+#endif
 		}
 
 		argIdx++; // next argument
@@ -329,29 +302,29 @@ MoCapSystem* detectMoCapSystem()
 {
 	MoCapSystem* pSystem = NULL;
 
-	if (pSystem == NULL && !config.pFileReader->filename.empty())
+	if (pSystem == NULL && !config.dataFilename.empty())
 	{
 		// query data file
-		MoCapFileReader* pReader = new MoCapFileReader(*config.pFileReader);
+		MoCapFileReader* pReader = new MoCapFileReader(config.dataFilename);
 		if (pReader->initialise())
 		{
-			LOG_INFO("Reading MoCap data from file '" << config.pFileReader->filename << "'");
+			LOG_INFO("Reading MoCap data from file '" << config.dataFilename << "'");
 			pSystem = pReader;
 		}
 		else
 		{
-			LOG_WARNING("Could not open file '" << config.pFileReader->filename << "' for reading");
+			LOG_WARNING("Could not open file '" << config.dataFilename << "' for reading");
 			pReader->deinitialise();
 			delete pReader;
 		}
 	}
 
 #ifdef USE_CORTEX
-	if (pSystem == NULL && config.pCortex->useCortex)
+	if (pSystem == NULL && config.useCortex)
 	{
 		// query Cortex
 		LOG_INFO("Querying Cortex Server");
-		MoCapCortex* pCortex = new MoCapCortex(*config.pCortex);
+		MoCapCortex* pCortex = new MoCapCortex(config.strRemoteCortexAddress, config.strLocalCortexAddress);
 		if ( pCortex->initialise() )
 		{
 			LOG_INFO("Cortex Server found");
@@ -387,24 +360,6 @@ MoCapSystem* detectMoCapSystem()
 	}
 #endif
 
-#ifdef USE_PIECEMETA
-	if (pSystem == NULL && config.pPieceMeta->usePieceMeta)
-	{
-		MoCapPieceMeta* pPieceMeta = new MoCapPieceMeta(*config.pPieceMeta);
-		if (pPieceMeta->initialise())
-		{
-			LOG_INFO("PieceMeta database contacted");
-			pSystem = pPieceMeta;
-		}
-		else
-		{
-			LOG_WARNING("Could not connect to PieceMeta database");
-			pPieceMeta->deinitialise();
-			delete pPieceMeta;
-		}
-	}
-#endif
-
 	if (pSystem == NULL)
 	{
 		// fallback: use simulator
@@ -415,7 +370,7 @@ MoCapSystem* detectMoCapSystem()
 	}
 
 	// are we supposed to write data into a file?
-	if (config.pMain->writeData)
+	if (config.writeData)
 	{
 		pMoCapFileWriter = new MoCapFileWriter(pSystem->getUpdateRate());
 	}
@@ -434,23 +389,23 @@ InteractionSystem* detectInteractionSystem()
 {
 	InteractionSystem* pSystem = NULL;
 	
-	if (config.pMain->interactionControllerPort > 255)
+	if (config.iInteractionControllerPort > 255)
 	{
 		// invalid > don't use
-		config.pMain->interactionControllerPort = 0;
+		config.iInteractionControllerPort = 0;
 	}
 
-	int scanFrom = config.pMain->interactionControllerPort;
-	int scanTo   = config.pMain->interactionControllerPort + 1;
-	if (config.pMain->interactionControllerPort < 0)
+	int scanFrom = config.iInteractionControllerPort;
+	int scanTo   = config.iInteractionControllerPort + 1;
+	if (config.iInteractionControllerPort < 0)
 	{
 		scanFrom = 1;
 		scanTo = 256;
 		LOG_INFO("Scanning for Interaction System...");
 	}
-	else if (config.pMain->interactionControllerPort > 0)
+	else if (config.iInteractionControllerPort > 0)
 	{
-		LOG_INFO("Searching Interaction System on COM" << config.pMain->interactionControllerPort);
+		LOG_INFO("Searching Interaction System on COM" << config.iInteractionControllerPort);
 	}
 
 	// scan ports 
@@ -502,7 +457,7 @@ bool createServer()
 	mtxServer.lock();
 	LOG_INFO("Creating server instance");
 
-	const int iConnectionType = config.pMain->useMulticast ? ConnectionType_Multicast : ConnectionType_Unicast;
+	const int iConnectionType = config.useMulticast ? ConnectionType_Multicast : ConnectionType_Unicast;
 	pServer = new NatNetServer(iConnectionType);
 
 	// print version info
@@ -519,13 +474,13 @@ bool createServer()
 
 	if (iConnectionType == ConnectionType_Multicast)
 	{
-		pServer->SetMulticastAddress((char*) config.pMain->serverMulticastAddress.c_str());
+		pServer->SetMulticastAddress((char*) config.strNatNetServerMulticastAddress.c_str());
 	}
 
 	int retCode = pServer->Initialize(
-		(char*) config.pMain->serverAddress.c_str(),
-		config.pMain->commandPort,
-		config.pMain->dataPort);
+		(char*) config.strNatNetServerAddress.c_str(),
+		config.iNatNetCommandPort, 
+		config.iNatNetDataPort);
 
 	if (retCode == ErrorCode_OK)
 	{
@@ -686,6 +641,8 @@ int __cdecl callbackNatNetServerRequestHandler(sPacket* pPacketIn, sPacket* pPac
 {
 	bool requestHandled = false;
 
+	std::cout << "callback" << std::endl;
+
 	switch (pPacketIn->iMessage)
 	{
 		case NAT_PING:
@@ -704,7 +661,7 @@ int __cdecl callbackNatNetServerRequestHandler(sPacket* pPacketIn, sPacket* pPac
 			// build server response packet
 			pPacketOut->iMessage = NAT_PINGRESPONSE;
 			pPacketOut->nDataBytes = sizeof(pPacketOut->Data.Sender);
-			strcpy_s(pPacketOut->Data.Sender.szName, config.pMain->serverName.c_str());
+			strcpy_s(pPacketOut->Data.Sender.szName, config.strServerName.c_str());
 			for (int i = 0; i < 4; i++)
 			{ 
 				pPacketOut->Data.Sender.Version[i] = (unsigned char) arrServerVersion[i]; 
@@ -720,6 +677,7 @@ int __cdecl callbackNatNetServerRequestHandler(sPacket* pPacketIn, sPacket* pPac
 
 		case NAT_REQUEST_MODELDEF:
 		{
+			std::cout << "scene start" << std::endl;
 			LOG_INFO("Requested scene description");
 			mtxServer.lock();
 			if (pServer)
@@ -751,6 +709,7 @@ int __cdecl callbackNatNetServerRequestHandler(sPacket* pPacketIn, sPacket* pPac
 
 		case NAT_REQUEST:
 		{
+			std::cout << "NAT" << std::endl;
 			std::string strRequest(pPacketIn->Data.szData);
 			std::string strRequestL; // convert to all lowercase
 			std::transform(strRequest.begin(), strRequest.end(), std::back_inserter(strRequestL), ::tolower);
@@ -776,9 +735,10 @@ int __cdecl callbackNatNetServerRequestHandler(sPacket* pPacketIn, sPacket* pPac
 			}
 			else if (strRequestL == "getdatastreamaddress")
 			{
-				if ( config.pMain->useMulticast )
+				std::cout << "data" << std::endl;
+				if ( config.useMulticast )
 				{ 
-					strcpy_s(pPacketOut->Data.szData, config.pMain->serverMulticastAddress.c_str());
+					strcpy_s(pPacketOut->Data.szData, config.strNatNetServerMulticastAddress.c_str());
 				}
 				else
 				{
@@ -858,18 +818,11 @@ int _tmain(int nArguments, _TCHAR* arrArguments[])
 	// check for command line parameters
 	parseCommandLine(nArguments, arrArguments);
 
-	if (config.pMain->printHelp)
-	{
-		serverStarting   = false;
-		serverRestarting = false;
-		printUsage();
-	}
-
 	if (serverStarting)
 	{
 		do
 		{
-			LOG_INFO("Starting MotionServer '" << config.pMain->serverName << "' v"
+			LOG_INFO("Starting MotionServer '" << config.strServerName << "' v" 
 				<< arrServerVersion[0] << "."
 				<< arrServerVersion[1] << "."
 				<< arrServerVersion[2] << "."
